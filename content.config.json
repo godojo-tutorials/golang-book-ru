@@ -1,0 +1,252 @@
+{
+  "name": "go-tutorial-content",
+  "version": "1.0.0",
+  "title": {
+    "en": "Complete Go Tutorial - From Basics to Expert",
+    "ru": "Полный учебник по Go - От основ до эксперта"
+  },
+  "description": {
+    "en": "Comprehensive 79-module Go tutorial covering everything from language fundamentals to expert-level system architecture",
+    "ru": "Всеобъемлющий учебник по Go из 79 модулей, охватывающий все от основ языка до экспертной системной архитектуры"
+  },
+
+  "structure": {
+    "type": "tutorial",
+    "totalModules": 79,
+    "categories": 16,
+    "languages": ["en", "ru"],
+    "defaultLanguage": "en"
+  },
+
+  "godojo": {
+    "integration": {
+      "parseMode": "git",
+      "gitPath": "content",
+      "autoSync": true,
+      "branch": "main"
+    },
+    "structure": {
+      "chapters": "content/chapters/{category}",
+      "sections": "content/sections/{category}/{section}",
+      "topics": "content/topics/{category}/{section}/{topic}",
+      "code": "code/{category}",
+      "exercises": "exercises/{category}"
+    },
+    "contentMapping": {
+      "chapterFile": "index.md",
+      "sectionFile": "content.md",
+      "topicFile": "topic.md",
+      "codeFile": "examples.go",
+      "exerciseFile": "exercises.md"
+    }
+  },
+
+  "categories": [
+    {
+      "id": "basics",
+      "slug": "basics",
+      "titleEn": "Language Basics",
+      "titleRu": "Основы языка",
+      "descriptionEn": "Go language fundamentals and development tools",
+      "descriptionRu": "Основы языка Go и инструменты разработки",
+      "modules": "1-15",
+      "difficulty": "BEGINNER",
+      "estimatedHours": 40
+    },
+    {
+      "id": "concurrency",
+      "slug": "concurrency",
+      "titleEn": "Concurrency",
+      "titleRu": "Конкурентность",
+      "descriptionEn": "Goroutines, channels, and concurrent programming patterns",
+      "descriptionRu": "Горутины, каналы и паттерны конкурентного программирования",
+      "modules": "16-21",
+      "difficulty": "INTERMEDIATE",
+      "estimatedHours": 25
+    },
+    {
+      "id": "web",
+      "slug": "web",
+      "titleEn": "Web Development",
+      "titleRu": "Веб-разработка",
+      "descriptionEn": "HTTP servers, Gin framework, and API design",
+      "descriptionRu": "HTTP серверы, фреймворк Gin и проектирование API",
+      "modules": "22-25",
+      "difficulty": "INTERMEDIATE",
+      "estimatedHours": 20
+    },
+    {
+      "id": "database",
+      "slug": "database",
+      "titleEn": "Database Integration",
+      "titleRu": "Интеграция с базами данных",
+      "descriptionEn": "SQL, GORM, migrations, and database testing",
+      "descriptionRu": "SQL, GORM, миграции и тестирование баз данных",
+      "modules": "26-30",
+      "difficulty": "INTERMEDIATE",
+      "estimatedHours": 30
+    },
+    {
+      "id": "testing",
+      "slug": "testing",
+      "titleEn": "Testing & Quality",
+      "titleRu": "Тестирование и качество",
+      "descriptionEn": "Unit testing, benchmarking, and integration testing",
+      "descriptionRu": "Модульное тестирование, бенчмаркинг и интеграционное тестирование",
+      "modules": "31-34",
+      "difficulty": "INTERMEDIATE",
+      "estimatedHours": 20
+    },
+    {
+      "id": "production",
+      "slug": "production",
+      "titleEn": "Production Basics",
+      "titleRu": "Основы production",
+      "descriptionEn": "Logging, health checks, configuration, and monitoring",
+      "descriptionRu": "Логирование, проверки здоровья, конфигурация и мониторинг",
+      "modules": "35-38",
+      "difficulty": "INTERMEDIATE",
+      "estimatedHours": 20
+    },
+    {
+      "id": "performance",
+      "slug": "performance",
+      "titleEn": "Performance & Profiling",
+      "titleRu": "Производительность и профилирование",
+      "descriptionEn": "CPU/memory profiling, GC tuning, and load testing",
+      "descriptionRu": "Профилирование CPU/памяти, настройка GC и нагрузочное тестирование",
+      "modules": "39-44",
+      "difficulty": "ADVANCED",
+      "estimatedHours": 35
+    },
+    {
+      "id": "frameworks",
+      "slug": "frameworks",
+      "titleEn": "Advanced Frameworks",
+      "titleRu": "Продвинутые фреймворки",
+      "descriptionEn": "Fiber, Echo, and advanced HTTP patterns",
+      "descriptionRu": "Fiber, Echo и продвинутые HTTP паттерны",
+      "modules": "45-48",
+      "difficulty": "ADVANCED",
+      "estimatedHours": 20
+    },
+    {
+      "id": "advanced-database",
+      "slug": "advanced-database",
+      "titleEn": "Advanced Database",
+      "titleRu": "Продвинутая работа с БД",
+      "descriptionEn": "Performance optimization, alternative ORMs, and NoSQL",
+      "descriptionRu": "Оптимизация производительности, альтернативные ORM и NoSQL",
+      "modules": "49-52",
+      "difficulty": "ADVANCED",
+      "estimatedHours": 20
+    },
+    {
+      "id": "prod-engineering",
+      "slug": "prod-engineering",
+      "titleEn": "Production Engineering",
+      "titleRu": "Production инжиниринг",
+      "descriptionEn": "Deployment strategies, containers, and debugging",
+      "descriptionRu": "Стратегии развертывания, контейнеры и отладка",
+      "modules": "53-57",
+      "difficulty": "ADVANCED",
+      "estimatedHours": 30
+    },
+    {
+      "id": "security",
+      "slug": "security",
+      "titleEn": "Security",
+      "titleRu": "Безопасность",
+      "descriptionEn": "Input validation, authentication, and cryptography",
+      "descriptionRu": "Валидация ввода, аутентификация и криптография",
+      "modules": "58-60",
+      "difficulty": "ADVANCED",
+      "estimatedHours": 15
+    },
+    {
+      "id": "kubernetes",
+      "slug": "kubernetes",
+      "titleEn": "Kubernetes",
+      "titleRu": "Kubernetes",
+      "descriptionEn": "Containerization, deployment, and monitoring",
+      "descriptionRu": "Контейнеризация, развертывание и мониторинг",
+      "modules": "61-63",
+      "difficulty": "ADVANCED",
+      "estimatedHours": 15
+    },
+    {
+      "id": "advanced-concurrency",
+      "slug": "advanced-concurrency",
+      "titleEn": "Advanced Concurrency",
+      "titleRu": "Продвинутая конкурентность",
+      "descriptionEn": "Advanced patterns, custom synchronization, and distributed coordination",
+      "descriptionRu": "Продвинутые паттерны, пользовательская синхронизация и распределенная координация",
+      "modules": "64-67",
+      "difficulty": "EXPERT",
+      "estimatedHours": 25
+    },
+    {
+      "id": "architecture",
+      "slug": "architecture",
+      "titleEn": "System Architecture",
+      "titleRu": "Системная архитектура",
+      "descriptionEn": "Microservices, gRPC, message queues, and distributed systems",
+      "descriptionRu": "Микросервисы, gRPC, очереди сообщений и распределенные системы",
+      "modules": "68-72",
+      "difficulty": "EXPERT",
+      "estimatedHours": 30
+    },
+    {
+      "id": "interview",
+      "slug": "interview",
+      "titleEn": "Interview Mastery",
+      "titleRu": "Мастерство собеседований",
+      "descriptionEn": "Coding interviews, system design, and portfolio projects",
+      "descriptionRu": "Собеседования по программированию, проектированию систем и портфолио проектов",
+      "modules": "73-76",
+      "difficulty": "EXPERT",
+      "estimatedHours": 25
+    },
+    {
+      "id": "advanced",
+      "slug": "advanced",
+      "titleEn": "Advanced Topics",
+      "titleRu": "Продвинутые темы",
+      "descriptionEn": "Performance engineering, production excellence, and advanced Go features",
+      "descriptionRu": "Инжиниринг производительности, совершенство production и продвинутые возможности Go",
+      "modules": "77-79",
+      "difficulty": "EXPERT",
+      "estimatedHours": 15
+    }
+  ],
+
+  "quality": {
+    "minWords": 800,
+    "minCodeExamples": 3,
+    "minExercises": 2,
+    "requireBilingualContent": true,
+    "requireCodeExamples": true,
+    "requireExercises": true
+  },
+
+  "authoring": {
+    "templates": {
+      "chapter": "templates/chapter-template.md",
+      "section": "templates/section-template.md",
+      "topic": "templates/topic-template.md",
+      "exercise": "templates/exercise-template.md"
+    },
+    "validation": {
+      "markdownLint": true,
+      "spellCheck": true,
+      "linkCheck": true,
+      "codeValidation": true
+    },
+    "workflow": {
+      "draftMode": true,
+      "reviewRequired": true,
+      "autoFormat": true,
+      "autoSync": false
+    }
+  }
+}
