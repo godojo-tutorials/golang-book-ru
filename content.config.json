@@ -1,5 +1,5 @@
 {
-  "name": "go-tutorial-content",
+  "name": "golang-book-ru",
   "version": "1.0.0",
   "title": {
     "en": "Complete Go Tutorial - From Basics to Expert",
@@ -14,8 +14,8 @@
     "type": "tutorial",
     "totalModules": 79,
     "categories": 16,
-    "languages": ["en", "ru"],
-    "defaultLanguage": "en"
+    "languages": ["ru"],
+    "defaultLanguage": "ru"
   },
 
   "godojo": {

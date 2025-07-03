@@ -1,0 +1,119 @@
+# Code Owners for Go Tutorial Content Repository
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# =============================================================================
+# Global Ownership
+# =============================================================================
+
+# Default owner for everything in the repo
+# This ensures all PRs have at least one reviewer
+* @dojo-master
+
+# =============================================================================
+# Content & Documentation
+# =============================================================================
+
+# All content requires content expertise review
+/content/ @dojo-master
+/exercises/ @dojo-master
+/templates/ @dojo-master
+/scripts/ @dojo-master
+
+# Documentation files
+README.md @dojo-master
+CONTRIBUTING.md @dojo-master
+LICENSE @dojo-master
+
+# Configuration files
+content.config.json @dojo-master
+package.json @dojo-master
+
+# =============================================================================
+# Code Examples
+# =============================================================================
+
+# Go code examples require Go expertise
+/code/ @dojo-master
+*.go @dojo-master
+
+# JavaScript/Node.js scripts for content authoring
+/scripts/ @dojo-master
+*.js @dojo-master
+
+# =============================================================================
+# Infrastructure & DevOps
+# =============================================================================
+
+# GitHub workflows and CI/CD
+/.github/ @dojo-master
+.github/workflows/ @dojo-master
+
+# Critical project folders requiring strict control
+/_meta/ @dojo-master
+
+# Dependencies and build
+package.json @dojo-master
+package-lock.json @dojo-master
+yarn.lock @dojo-master
+
+# =============================================================================
+# Specific File Types
+# =============================================================================
+
+# All markdown files need content review
+*.md @dojo-master
+
+# YAML files (workflows, configs)
+*.yml @dojo-master
+*.yaml @dojo-master
+
+# JSON configuration files
+*.json @dojo-master
+
+# =============================================================================
+# Critical Files (require extra attention)
+# =============================================================================
+
+# Security and licensing
+LICENSE @dojo-master
+SECURITY.md @dojo-master
+
+# Main configuration
+content.config.json @dojo-master
+
+# Main documentation
+README.md @dojo-master
+CONTRIBUTING.md @dojo-master
+
+# =============================================================================
+# Strict Control Policy
+# =============================================================================
+
+# IMPORTANT: @dojo-master maintains FULL control over project structure
+# All changes require explicit approval from @dojo-master
+# This ensures consistency and quality across the entire project
+
+# Additional reviewers (when team grows) will be ADVISORY only
+# Final approval always remains with @dojo-master
+
+# Future team structure (advisory reviewers only):
+# /content/ @dojo-master @content-advisors
+# /code/ @dojo-master @go-advisors
+# /.github/ @dojo-master @devops-advisors
+
+# But @dojo-master approval is ALWAYS required for merge
+
+# =============================================================================
+# Notes for Contributors
+# =============================================================================
+
+# 1. Code owners are automatically requested for review when PR is created
+# 2. At least one code owner must approve before merge (if enabled in branch protection)
+# 3. Use GitHub teams (@org/team-name) for better management
+# 4. More specific patterns override general ones
+# 5. Last matching pattern takes precedence
+
+# Examples of GitHub teams (when you create them):
+# @godojo-tutorials/content-team
+# @godojo-tutorials/go-experts
+# @godojo-tutorials/devops-team
