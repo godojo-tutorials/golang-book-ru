@@ -1,0 +1,288 @@
+name: 🔄 Godojo.dev Sync
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'content/**'
+      - 'code/**'
+      - 'exercises/**'
+  workflow_dispatch:
+    inputs:
+      force_sync:
+        description: 'Force full content synchronization'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  # Detect Content Changes
+  detect-changes:
+    name: 🔍 Detect Content Changes
+    runs-on: ubuntu-latest
+    outputs:
+      content-changed: ${{ steps.changes.outputs.content }}
+      code-changed: ${{ steps.changes.outputs.code }}
+      exercises-changed: ${{ steps.changes.outputs.exercises }}
+      changed-files: ${{ steps.changes.outputs.changed-files }}
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: 🔍 Detect Changes
+        id: changes
+        run: |
+          echo "Detecting content changes..."
+          
+          if [[ "${{ github.event.inputs.force_sync }}" == "true" ]]; then
+            echo "Force sync requested - marking all as changed"
+            echo "content=true" >> $GITHUB_OUTPUT
+            echo "code=true" >> $GITHUB_OUTPUT
+            echo "exercises=true" >> $GITHUB_OUTPUT
+            echo "changed-files=all" >> $GITHUB_OUTPUT
+          else
+            # Get changed files since last commit
+            changed_files=$(git diff --name-only HEAD~1 HEAD)
+          
+            # Check for content changes
+            content_changed=$(echo "$changed_files" | grep -q "^content/" && echo "true" || echo "false")
+            code_changed=$(echo "$changed_files" | grep -q "^code/" && echo "true" || echo "false")
+            exercises_changed=$(echo "$changed_files" | grep -q "^exercises/" && echo "true" || echo "false")
+          
+            echo "content=$content_changed" >> $GITHUB_OUTPUT
+            echo "code=$code_changed" >> $GITHUB_OUTPUT
+            echo "exercises=$exercises_changed" >> $GITHUB_OUTPUT
+            echo "changed-files<<EOF" >> $GITHUB_OUTPUT
+            echo "$changed_files" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "📊 Change Summary:"
+          echo "  - Content: $content_changed"
+          echo "  - Code: $code_changed" 
+          echo "  - Exercises: $exercises_changed"
+
+  # Validate Content Before Sync
+  pre-sync-validation:
+    name: ✅ Pre-Sync Validation
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.content-changed == 'true' || needs.detect-changes.outputs.code-changed == 'true'
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📥 Install Dependencies
+        run: npm ci
+
+      - name: ✅ Quick Validation
+        run: |
+          echo "Running quick validation before sync..."
+          
+          # Structure validation
+          npm run structure:validate
+          
+          # Content quality check
+          npm run content:check
+          
+          echo "✅ Validation passed - content ready for sync"
+
+  # Prepare Content for Sync
+  prepare-sync-data:
+    name: 📦 Prepare Sync Data
+    runs-on: ubuntu-latest
+    needs: [detect-changes, pre-sync-validation]
+    outputs:
+      sync-metadata: ${{ steps.metadata.outputs.metadata }}
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 📊 Generate Content Metadata
+        id: metadata
+        run: |
+          echo "Generating content metadata..."
+          
+          # Get commit information
+          commit_sha="${{ github.sha }}"
+          commit_message=$(git log -1 --pretty=format:'%s' | sed 's/"/\\"/g')
+          commit_author=$(git log -1 --pretty=format:'%an')
+          commit_date=$(git log -1 --pretty=format:'%ai')
+          
+          # Count content files
+          total_content=$(find content -name "*.md" | wc -l)
+          total_code=$(find code -name "*.go" | wc -l)
+          total_exercises=$(find exercises -name "*.md" | wc -l)
+          
+          # Create metadata JSON
+          metadata=$(cat << EOF
+          {
+            "commit": {
+              "sha": "$commit_sha",
+              "message": "$commit_message",
+              "author": "$commit_author",
+              "date": "$commit_date"
+            },
+            "statistics": {
+              "content_files": $total_content,
+              "code_files": $total_code,
+              "exercise_files": $total_exercises
+            },
+            "changes": {
+              "content": ${{ needs.detect-changes.outputs.content-changed }},
+              "code": ${{ needs.detect-changes.outputs.code-changed }},
+              "exercises": ${{ needs.detect-changes.outputs.exercises-changed }}
+            },
+            "sync_config": {
+              "force_sync": ${{ github.event.inputs.force_sync || false }},
+              "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+              "repository": "${{ github.repository }}",
+              "ref": "${{ github.ref }}"
+            }
+          }
+          EOF
+          )
+          
+          echo "Generated metadata:"
+          echo "$metadata" | jq .
+          
+          # Save metadata for webhook
+          echo "metadata<<EOF" >> $GITHUB_OUTPUT
+          echo "$metadata" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: 📦 Create Content Package
+        run: |
+          echo "Creating content package for sync..."
+          
+          # Create sync directory
+          mkdir -p sync-package
+          
+          # Copy all content (since it's git-based sync)
+          cp -r content/ sync-package/content/ 2>/dev/null || echo "No content directory"
+          cp -r code/ sync-package/code/ 2>/dev/null || echo "No code directory"
+          cp -r exercises/ sync-package/exercises/ 2>/dev/null || echo "No exercises directory"
+          
+          # Copy configuration files
+          cp content.config.json sync-package/ 2>/dev/null || echo "No content config"
+          cp package.json sync-package/ 2>/dev/null || echo "No package.json"
+          
+          # Create package info
+          echo "Package created with:"
+          find sync-package -type f | wc -l | xargs echo "Files:"
+          du -sh sync-package | cut -f1 | xargs echo "Size:"
+
+      - name: 📁 Upload Sync Package
+        uses: actions/upload-artifact@v3
+        with:
+          name: content-package
+          path: sync-package/
+          retention-days: 7
+
+  # Notify Godojo.dev via Webhook
+  notify-godojo:
+    name: 🔔 Notify Godojo.dev
+    runs-on: ubuntu-latest
+    needs: [detect-changes, prepare-sync-data]
+    environment: production
+    steps:
+      - name: 🔔 Send Webhook Notification
+        id: webhook
+        run: |
+          echo "🔔 Sending content update notification to godojo.dev..."
+          
+          # Prepare webhook payload
+          webhook_payload='${{ needs.prepare-sync-data.outputs.sync-metadata }}'
+          
+          # Send webhook notification
+          response=$(curl -s -w "\n%{http_code}" \
+            -X POST "${{ secrets.GODOJO_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.GODOJO_WEBHOOK_TOKEN }}" \
+            -H "X-GitHub-Event: content-update" \
+            -H "X-GitHub-Delivery: ${{ github.run_id }}" \
+            -d "$webhook_payload")
+          
+          # Parse response
+          http_code=$(echo "$response" | tail -n1)
+          response_body=$(echo "$response" | head -n -1)
+          
+          echo "HTTP Status: $http_code"
+          echo "Response: $response_body"
+          
+          if [[ "$http_code" -ge 200 && "$http_code" -lt 300 ]]; then
+            echo "✅ Webhook sent successfully"
+            echo "webhook_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Webhook failed with status $http_code"
+            echo "webhook_status=failed" >> $GITHUB_OUTPUT
+          
+            # Don't fail the workflow for webhook issues
+            echo "⚠️ Webhook notification failed, but continuing workflow"
+          fi
+
+      - name: ⏳ Wait for Processing
+        if: steps.webhook.outputs.webhook_status == 'success'
+        run: |
+          echo "⏳ Giving godojo.dev time to process the webhook..."
+          sleep 15
+
+  # Sync Summary
+  sync-summary:
+    name: 📋 Sync Summary
+    runs-on: ubuntu-latest
+    needs: [detect-changes, prepare-sync-data, notify-godojo]
+    if: always()
+    steps:
+      - name: 📊 Generate Summary
+        run: |
+          echo "## 🔄 Content Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository**: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 📊 Changes Detected" >> $GITHUB_STEP_SUMMARY
+          echo "- 📚 Content: ${{ needs.detect-changes.outputs.content-changed == 'true' && '✅ Changed' || '➖ No changes' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 💻 Code: ${{ needs.detect-changes.outputs.code-changed == 'true' && '✅ Changed' || '➖ No changes' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎯 Exercises: ${{ needs.detect-changes.outputs.exercises-changed == 'true' && '✅ Changed' || '➖ No changes' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🚀 Sync Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Validation: ${{ needs.prepare-sync-data.result == 'success' && '✅ Passed' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Webhook: ${{ needs.notify-godojo.result == 'success' && '✅ Sent' || '⚠️ Issues' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.detect-changes.outputs.content-changed }}" == "true" || 
+                "${{ needs.detect-changes.outputs.code-changed }}" == "true" || 
+                "${{ needs.detect-changes.outputs.exercises-changed }}" == "true" ]]; then
+            echo "🔗 [Check godojo.dev for updates](https://godojo.dev)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ No content changes detected - sync not required" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 🎉 Success Notification
+        if: success()
+        run: |
+          echo "🎉 Content sync completed successfully!"
+          echo "Changes have been processed and sent to godojo.dev"
+
+      - name: ⚠️ Failure Notification
+        if: failure()
+        run: |
+          echo "⚠️ Content sync encountered issues"
+          echo "Check the workflow logs for details"
+          echo "Manual sync can be triggered from the Actions tab"

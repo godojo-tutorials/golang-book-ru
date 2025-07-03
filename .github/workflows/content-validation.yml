@@ -1,0 +1,264 @@
+name: 📚 Content Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'content/**'
+      - 'code/**'
+      - 'exercises/**'
+      - 'templates/**'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'content/**'
+      - 'code/**'
+      - 'exercises/**'
+      - 'templates/**'
+
+env:
+  NODE_VERSION: '18'
+  GO_VERSION: '1.21'
+
+jobs:
+  # Content Quality Validation
+  content-quality:
+    name: 🔍 Content Quality Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📥 Install Dependencies
+        run: npm ci
+
+      - name: 📝 Validate Content Structure
+        run: |
+          echo "🔍 Checking content structure..."
+          npm run structure:validate
+
+      - name: 📊 Content Quality Check
+        run: |
+          echo "📊 Validating content quality standards..."
+          npm run content:check
+
+      - name: 🔗 Link Validation
+        run: |
+          echo "🔗 Validating internal and external links..."
+          npm run links:check || echo "⚠️ Link check completed with warnings"
+
+      - name: 📏 Content Length Validation
+        run: |
+          echo "📏 Checking minimum content length requirements..."
+          
+          # Check word count for all content files
+          find content -name "*.md" -type f | while read file; do
+            word_count=$(wc -w < "$file")
+            echo "📄 $file: $word_count words"
+          
+            if [[ $word_count -lt 800 && ! "$file" =~ README\.md$ ]]; then
+              echo "⚠️ WARNING: $file has only $word_count words (minimum: 800)"
+            fi
+          done
+
+  # Go Code Validation
+  code-validation:
+    name: 💻 Code Examples Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: ✅ Compile Go Examples
+        run: |
+          echo "✅ Compiling all Go code examples..."
+          
+          # Find and compile all Go files
+          find code -name "*.go" -type f | while read -r file; do
+            echo "Checking: $file"
+          
+            # Try to build the file
+            if go build -o /tmp/test_binary "$file" 2>/dev/null; then
+              echo "✅ $file compiles successfully"
+              rm -f /tmp/test_binary
+            else
+              echo "❌ $file failed to compile"
+              go build "$file" # Show error details
+              exit 1
+            fi
+          done
+
+      - name: 🧪 Run Go Tests
+        run: |
+          echo "🧪 Running Go tests if present..."
+          
+          # Find directories with test files
+          find code -name "*_test.go" -type f | while read -r test_file; do
+            dir=$(dirname "$test_file")
+            echo "Testing directory: $dir"
+          
+            (cd "$dir" && go test -v .) || echo "⚠️ Tests failed in $dir"
+          done
+
+      - name: 🔍 Go Vet Analysis
+        run: |
+          echo "🔍 Running go vet on all examples..."
+          
+          find code -name "*.go" -type f | while read -r file; do
+            dir=$(dirname "$file")
+            echo "Vetting: $file"
+          
+            (cd "$dir" && go vet .) || echo "⚠️ Vet issues in $dir"
+          done
+
+      - name: 📝 Go Format Check
+        run: |
+          echo "📝 Checking Go code formatting..."
+          
+          unformatted=$(find code -name "*.go" -type f | xargs gofmt -l)
+          
+          if [ -n "$unformatted" ]; then
+            echo "❌ Unformatted Go files found:"
+            echo "$unformatted"
+            echo ""
+            echo "Run 'gofmt -w' on these files to fix formatting"
+            exit 1
+          fi
+          
+          echo "✅ All Go files are properly formatted"
+
+  # Documentation and Markdown
+  documentation:
+    name: 📖 Documentation Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📥 Install Dependencies
+        run: npm ci
+
+      - name: 📝 Markdown Lint
+        run: |
+          echo "📝 Linting Markdown files..."
+          
+          # Basic markdown validation
+          find . -name "*.md" -type f | while read file; do
+            echo "Checking: $file"
+            # Basic checks - no empty files, proper structure
+            if [[ ! -s "$file" ]]; then
+              echo "⚠️ WARNING: $file is empty"
+            fi
+          done
+
+      - name: 🔤 Spell Check (Basic)
+        run: |
+          echo "🔤 Running basic spell check..."
+          
+          # Check for common typos
+          find content -name "*.md" -type f -exec grep -l "teh\|recieve\|seperate\|occured" {} \; | while read file; do
+            echo "⚠️ Possible typos in: $file"
+          done || echo "✅ No obvious typos found"
+
+      - name: 📊 Content Statistics
+        run: |
+          echo "📊 Generating content statistics..."
+          
+          total_content=$(find content -name "*.md" | wc -l)
+          total_code=$(find code -name "*.go" | wc -l)
+          total_exercises=$(find exercises -name "*.md" | wc -l)
+          total_words=$(find content -name "*.md" -exec wc -w {} + 2>/dev/null | tail -n1 | awk '{print $1}' || echo "0")
+          
+          echo "📈 Statistics:"
+          echo "  - Content files: $total_content"
+          echo "  - Code examples: $total_code"
+          echo "  - Exercise files: $total_exercises"
+          echo "  - Total words: $total_words"
+
+  # Security and Dependencies
+  security:
+    name: 🔒 Security Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 🔍 Security Audit
+        run: |
+          echo "🔍 Running npm security audit..."
+          npm audit --audit-level=moderate || echo "⚠️ Security issues found - review recommended"
+
+      - name: 📋 License Check
+        run: |
+          echo "📋 Checking license file..."
+          
+          if [[ -f "LICENSE" ]]; then
+            echo "✅ LICENSE file exists"
+            echo "License type: $(head -n1 LICENSE)"
+          else
+            echo "❌ LICENSE file missing"
+            exit 1
+          fi
+
+  # Validation Summary
+  validation-summary:
+    name: 📋 Validation Summary
+    runs-on: ubuntu-latest
+    needs: [content-quality, code-validation, documentation, security]
+    if: always()
+    steps:
+      - name: 📋 Generate Summary
+        run: |
+          echo "## 📋 Content Validation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Content Quality | ${{ needs.content-quality.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Validation | ${{ needs.code-validation.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Documentation | ${{ needs.documentation.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security | ${{ needs.security.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.content-quality.result }}" == "success" && 
+                "${{ needs.code-validation.result }}" == "success" && 
+                "${{ needs.documentation.result }}" == "success" && 
+                "${{ needs.security.result }}" == "success" ]]; then
+            echo "🎉 **All validations passed!** Content is ready for merge." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Some validations failed.** Please review and fix issues before merging." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 🔔 Validation Status
+        run: |
+          if [[ "${{ needs.content-quality.result }}" == "success" && 
+                "${{ needs.code-validation.result }}" == "success" && 
+                "${{ needs.documentation.result }}" == "success" && 
+                "${{ needs.security.result }}" == "success" ]]; then
+            echo "✅ All validations passed successfully!"
+          else
+            echo "❌ Some validations failed - check the logs above"
+            exit 1
+          fi
