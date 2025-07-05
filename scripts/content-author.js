@@ -1,547 +1,1602 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
-import { createInterface } from 'readline';
+import { existsSync, mkdirSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
+import { cwd } from 'node:process';
 import chalk from 'chalk';
 import ora from 'ora';
 import boxen from 'boxen';
 import inquirer from 'inquirer';
 import slugify from 'slugify';
+import { z } from 'zod';
+import Handlebars from 'handlebars';
 
-// === CONFIGURATION ===
+// === CONSTANTS ===
 const CONFIG_FILE = 'content.config.json';
 const AUTHOR_CONFIG_FILE = '.content-author-config.json';
 
-class ContentAuthor {
-  constructor() {
-    this.config = this.loadConfig();
-    this.authorConfig = this.loadAuthorConfig();
+// === ERROR CLASSES ===
+class ContentAuthorError extends Error {
+  constructor(message, code, details = {}) {
+    super(message);
+    this.name = 'ContentAuthorError';
+    this.code = code;
+    this.details = details;
   }
-
-  loadConfig() {
-    try {
-      return JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
-    } catch (error) {
-      console.error(chalk.red('❌ Could not load content.config.json'));
-      process.exit(1);
-    }
-  }
-
-  loadAuthorConfig() {
-    if (existsSync(AUTHOR_CONFIG_FILE)) {
-      try {
-        return JSON.parse(readFileSync(AUTHOR_CONFIG_FILE, 'utf8'));
-      } catch (error) {
-        return null;
-      }
-    }
-    return null;
-  }
-
-  saveAuthorConfig(config) {
-    writeFileSync(AUTHOR_CONFIG_FILE, JSON.stringify(config, null, 2));
-  }
-
-  async init() {
-    console.log(boxen(
-      chalk.blue.bold('🚀 Go Tutorial Content Author\n\n') +
-      chalk.white('Setup your authoring environment for\n') +
-      chalk.yellow.bold('godojo.dev') + chalk.white(' integration'),
-      { padding: 1, borderColor: 'blue', borderStyle: 'round' }
-    ));
-
-    if (this.authorConfig) {
-      console.log(chalk.green(`✅ Welcome back, ${this.authorConfig.name}!`));
-      console.log(chalk.gray(`📝 Default language: ${this.authorConfig.defaultLanguage}`));
-      console.log(chalk.gray(`🎯 Content focus: ${this.authorConfig.contentFocus}`));
-      return;
-    }
-
-    const answers = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'name',
-        message: 'What is your name?',
-        validate: input => input.trim().length > 0
-      },
-      {
-        type: 'input',
-        name: 'email',
-        message: 'Your email address:',
-        validate: input => input.includes('@')
-      },
-      {
-        type: 'list',
-        name: 'defaultLanguage',
-        message: 'Your primary content language:',
-        choices: [
-          { name: 'English', value: 'en' },
-          { name: 'Russian (Русский)', value: 'ru' }
-        ]
-      },
-      {
-        type: 'list',
-        name: 'contentFocus',
-        message: 'Your content focus area:',
-        choices: [
-          { name: 'Beginner Content (Modules 1-38)', value: 'beginner' },
-          { name: 'Intermediate Content (Modules 39-63)', value: 'intermediate' },
-          { name: 'Advanced Content (Modules 64-79)', value: 'advanced' },
-          { name: 'All Levels', value: 'all' }
-        ]
-      },
-      {
-        type: 'list',
-        name: 'experienceLevel',
-        message: 'Your Go experience level:',
-        choices: [
-          { name: 'Beginner (0-1 years)', value: 'beginner' },
-          { name: 'Intermediate (1-3 years)', value: 'intermediate' },
-          { name: 'Advanced (3-5 years)', value: 'advanced' },
-          { name: 'Expert (5+ years)', value: 'expert' }
-        ]
-      }
-    ]);
-
-    const authorConfig = {
-      ...answers,
-      setupDate: new Date().toISOString(),
-      contentCreated: 0,
-      targetAudience: 'global',
-      platform: 'godojo.dev'
-    };
-
-    this.saveAuthorConfig(authorConfig);
-    this.authorConfig = authorConfig;
-
-    console.log(chalk.green('\n✅ Author environment setup complete!'));
-    console.log(chalk.gray('Run'), chalk.yellow('npm run author:new'), chalk.gray('to create your first content piece'));
-  }
-
-  async createContent() {
-    if (!this.authorConfig) {
-      console.log(chalk.red('❌ Please run'), chalk.yellow('npm run author:init'), chalk.red('first'));
-      return;
-    }
-
-    console.log(chalk.blue.bold('\n📝 Create New Go Tutorial Content\n'));
-
-    // Select category
-    const categoryChoices = this.config.categories.map(cat => ({
-      name: `${cat.titleEn} (${cat.titleRu}) - Modules ${cat.modules}`,
-      value: cat.slug
-    }));
-
-    const { category } = await inquirer.prompt([{
-      type: 'list',
-      name: 'category',
-      message: 'Select a category:',
-      choices: categoryChoices
-    }]);
-
-    const selectedCategory = this.config.categories.find(c => c.slug === category);
-
-    // Select content type
-    const { contentType } = await inquirer.prompt([{
-      type: 'list',
-      name: 'contentType',
-      message: 'What type of content are you creating?',
-      choices: [
-        { name: 'Chapter Overview', value: 'chapter' },
-        { name: 'Section Content', value: 'section' },
-        { name: 'Topic (detailed lesson)', value: 'topic' },
-        { name: 'Code Examples', value: 'code' },
-        { name: 'Exercises', value: 'exercises' }
-      ]
-    }]);
-
-    // Get content details
-    const { titleEn, titleRu, description } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'titleEn',
-        message: 'Title (English):',
-        validate: input => input.trim().length > 0
-      },
-      {
-        type: 'input',
-        name: 'titleRu',
-        message: 'Title (Russian):',
-        validate: input => input.trim().length > 0
-      },
-      {
-        type: 'input',
-        name: 'description',
-        message: 'Brief description:'
-      }
-    ]);
-
-    const slug = slugify(titleEn, { lower: true, strict: true });
-
-    // Create content structure
-    const spinner = ora('Creating content structure...').start();
-
-    try {
-      await this.generateContentFiles({
-        category: selectedCategory,
-        contentType,
-        slug,
-        titleEn,
-        titleRu,
-        description
-      });
-
-      spinner.succeed('Content structure created!');
-
-      console.log(chalk.green('\n✅ Content created successfully!'));
-      console.log(chalk.gray('📁 Category:'), chalk.white(selectedCategory.titleEn));
-      console.log(chalk.gray('📝 Type:'), chalk.white(contentType));
-      console.log(chalk.gray('🏷️  Slug:'), chalk.white(slug));
-
-      // Update author stats
-      this.authorConfig.contentCreated++;
-      this.saveAuthorConfig(this.authorConfig);
-
-    } catch (error) {
-      spinner.fail('Failed to create content');
-      console.error(chalk.red(error.message));
-    }
-  }
-
-  async generateContentFiles({ category, contentType, slug, titleEn, titleRu, description }) {
-    const basePath = join('content', contentType === 'code' ? '../code' :
-                          contentType === 'exercises' ? '../exercises' :
-                          `${contentType}s`, category.slug);
-
-    if (contentType === 'topic') {
-      // For topics, we need section selection
-      const sectionPath = join(basePath, slug);
-      mkdirSync(sectionPath, { recursive: true });
-
-      // Create bilingual topic files
-      this.createTopicFile(join(sectionPath, 'topic.en.md'), {
-        titleEn, titleRu, description, category, slug, language: 'en'
-      });
-
-      this.createTopicFile(join(sectionPath, 'topic.ru.md'), {
-        titleEn, titleRu, description, category, slug, language: 'ru'
-      });
-
-      // Create exercises files
-      this.createExerciseFile(join(sectionPath, 'exercises.en.md'), {
-        titleEn, language: 'en'
-      });
-
-      this.createExerciseFile(join(sectionPath, 'exercises.ru.md'), {
-        titleEn, language: 'ru'
-      });
-
-      // Create code examples file
-      this.createCodeFile(join(sectionPath, 'examples.go'), {
-        titleEn, category, slug
-      });
-
-    } else if (contentType === 'chapter') {
-      mkdirSync(basePath, { recursive: true });
-      this.createChapterFile(join(basePath, 'index.md'), {
-        titleEn, titleRu, description, category
-      });
-    }
-    // Add other content types as needed
-  }
-
-  createTopicFile(filePath, { titleEn, titleRu, description, category, slug, language }) {
-    const isEn = language === 'en';
-    const title = isEn ? titleEn : titleRu;
-
-    const content = `---
-title: "${title}"
-description: "${description}"
-category: "${category.slug}"
-slug: "${slug}"
-language: "${language}"
-difficulty: "${category.difficulty}"
-estimatedMinutes: 45
-tags: ["golang", "${category.slug}", "tutorial"]
-lastUpdated: "${new Date().toISOString()}"
-gitPath: "content/topics/${category.slug}/${slug}/topic.${language}.md"
----
-
-# ${title}
-
-${isEn ? '## Overview' : '## Обзор'}
-
-${isEn ?
-  'This topic covers... (Add your detailed explanation here)' :
-  'Эта тема охватывает... (Добавьте ваше подробное объяснение здесь)'
 }
 
-${isEn ? '## Key Concepts' : '## Ключевые концепции'}
+class ConfigError extends ContentAuthorError {
+  constructor(message, code, details) {
+    super(message, code, details);
+    this.name = 'ConfigError';
+  }
+}
 
-${isEn ? '## Code Examples' : '## Примеры кода'}
+class ValidationError extends ContentAuthorError {
+  constructor(message, code, details) {
+    super(message, code, details);
+    this.name = 'ValidationError';
+  }
+}
+
+class TemplateError extends ContentAuthorError {
+  constructor(message, code, details) {
+    super(message, code, details);
+    this.name = 'TemplateError';
+  }
+}
+
+// === SCHEMAS ===
+const ConfigSchema = z.object({
+  structure: z.object({
+    defaultLanguage: z.string(),
+    languages: z.array(z.string()).min(1)
+  }),
+  godojo: z.object({
+    platform: z.string().optional(),
+    apiEndpoint: z.string().optional()
+  }),
+  categories: z.array(z.object({
+    slug: z.string(),
+    titleRu: z.string(),
+    titleEn: z.string().optional(),
+    descriptionRu: z.string(),
+    descriptionEn: z.string().optional(),
+    modules: z.string(),
+    difficulty: z.enum(['Beginner', 'Intermediate', 'Advanced']),
+    estimatedHours: z.number().positive()
+  })),
+  quality: z.object({
+    minWords: z.number().positive(),
+    minCodeExamples: z.number().positive(),
+    minExercises: z.number().positive()
+  })
+});
+
+const AuthorConfigSchema = z.object({
+  authorId: z.string(),
+  username: z.string(),
+  displayName: z.string(),
+  email: z.string().email(),
+  bio: z.string(),
+  expertise: z.array(z.string()),
+  socialLinks: z.object({
+    github: z.string().nullable(),
+    twitter: z.string().nullable(),
+    website: z.string().nullable()
+  }),
+  language: z.string(),
+  joinDate: z.string(),
+  contentCreated: z.number(),
+  contentHistory: z.array(z.object({
+    id: z.string(),
+    type: z.string(),
+    title: z.string(),
+    slug: z.string(),
+    category: z.string(),
+    files: z.array(z.string()),
+    createdAt: z.string(),
+    status: z.string()
+  })),
+  platform: z.string(),
+  repository: z.string(),
+  toolVersion: z.string()
+});
+
+// === CONFIG MANAGER ===
+class ConfigManager {
+  #config = null;
+  #logger;
+
+  constructor(logger = console) {
+    this.#logger = logger;
+  }
+
+  async loadConfig(configPath = CONFIG_FILE) {
+    if (!existsSync(configPath)) {
+      throw new ConfigError(
+          `Configuration file ${configPath} not found`,
+          'CONFIG_NOT_FOUND',
+          { configPath }
+      );
+    }
+
+    try {
+      const configContent = await readFile(configPath, 'utf8');
+      const rawConfig = JSON.parse(configContent);
+      this.#config = this.#validateConfig(rawConfig);
+      return this.#config;
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new ConfigError(
+            `Invalid JSON in ${configPath}: ${error.message}`,
+            'CONFIG_INVALID_JSON',
+            { configPath, originalError: error.message }
+        );
+      }
+      if (error instanceof z.ZodError) {
+        throw new ValidationError(
+            'Invalid configuration structure',
+            'VALIDATION_SCHEMA_FAILED',
+            { errors: error.errors }
+        );
+      }
+      if (error instanceof ValidationError || error instanceof ConfigError) {
+        throw error;
+      }
+      // Неожиданная ошибка
+      throw new ConfigError(
+          `Failed to load configuration: ${error.message}`,
+          'CONFIG_LOAD_FAILED',
+          { configPath, originalError: error.message }
+      );
+    }
+  }
+
+  #validateConfig(config) {
+    return ConfigSchema.parse(config);
+  }
+
+  getConfig() {
+    if (!this.#config) {
+      throw new ConfigError('Configuration not loaded', 'CONFIG_NOT_LOADED');
+    }
+    return this.#config;
+  }
+
+  getLanguageConfig() {
+    const config = this.getConfig();
+    return {
+      default: config.structure.defaultLanguage,
+      supported: config.structure.languages
+    };
+  }
+
+  getCategories() {
+    return this.getConfig().categories;
+  }
+
+  getQualityStandards() {
+    return this.getConfig().quality;
+  }
+}
+
+// === AUTHOR MANAGER ===
+class AuthorManager {
+  #authorConfig = null;
+  #configPath;
+  #logger;
+
+  constructor(configPath = AUTHOR_CONFIG_FILE, logger = console) {
+    this.#configPath = configPath;
+    this.#logger = logger;
+  }
+
+  async loadProfile() {
+    if (!existsSync(this.#configPath)) {
+      return null;
+    }
+
+    try {
+      const content = await readFile(this.#configPath, 'utf8');
+      const rawConfig = JSON.parse(content);
+      this.#authorConfig = this.#validateProfile(rawConfig);
+      return this.#authorConfig;
+    } catch (error) {
+      this.#logger.warn('Failed to load author profile, will create new one');
+      return null;
+    }
+  }
+
+  #validateProfile(profile) {
+    return AuthorConfigSchema.parse(profile);
+  }
+
+  async saveProfile(profile) {
+    try {
+      const validatedProfile = this.#validateProfile(profile);
+      await writeFile(
+          this.#configPath,
+          JSON.stringify(validatedProfile, null, 2)
+      );
+      this.#authorConfig = validatedProfile;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        throw new ValidationError(
+            'Invalid author profile structure',
+            'VALIDATION_AUTHOR_FAILED',
+            { errors: error.errors }
+        );
+      }
+      throw new ConfigError(
+          'Failed to save author profile',
+          'AUTHOR_SAVE_FAILED',
+          { originalError: error.message }
+      );
+    }
+  }
+
+  getProfile() {
+    return this.#authorConfig;
+  }
+
+  generateAuthorId(username) {
+    const timestamp = Date.now();
+    const hash = this.#simpleHash(username + timestamp);
+    return `author_${username}_${hash}`;
+  }
+
+  #simpleHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16).substring(0, 8);
+  }
+
+  async updateStats(contentType, contentDetails) {
+    if (!this.#authorConfig) {
+      throw new ConfigError('No author profile loaded', 'AUTHOR_NOT_LOADED');
+    }
+
+    this.#authorConfig.contentCreated++;
+    this.#authorConfig.contentHistory.push({
+      id: `content_${Date.now()}`,
+      type: contentType,
+      title: contentDetails.title,
+      slug: contentDetails.slug,
+      category: contentDetails.category,
+      files: contentDetails.files,
+      createdAt: new Date().toISOString(),
+      status: 'created'
+    });
+
+    await this.saveProfile(this.#authorConfig);
+  }
+}
+
+// === TEMPLATE MANAGER ===
+class TemplateManager {
+  #templates = new Map();
+  #logger;
+
+  constructor(logger = console) {
+    this.#logger = logger;
+    this.#initializeTemplates();
+  }
+
+  #initializeTemplates() {
+    // Встроенные шаблоны (так как у нас один файл)
+    this.#registerTemplate('category', this.#getCategoryTemplate());
+    this.#registerTemplate('topic', this.#getTopicTemplate());
+  }
+
+  #registerTemplate(name, template) {
+    try {
+      this.#templates.set(name, Handlebars.compile(template));
+    } catch (error) {
+      throw new TemplateError(
+          `Failed to compile template: ${name}`,
+          'TEMPLATE_COMPILE_FAILED',
+          { templateName: name, error: error.message }
+      );
+    }
+  }
+
+  render(templateName, data) {
+    const template = this.#templates.get(templateName);
+    if (!template) {
+      throw new TemplateError(
+          `Template not found: ${templateName}`,
+          'TEMPLATE_NOT_FOUND',
+          { templateName }
+      );
+    }
+
+    try {
+      return template(data);
+    } catch (error) {
+      throw new TemplateError(
+          `Failed to render template: ${templateName}`,
+          'TEMPLATE_RENDER_FAILED',
+          { templateName, error: error.message }
+      );
+    }
+  }
+
+  #getCategoryTemplate() {
+    return `---
+title: "{{title}}"
+description: "{{description}}"
+category: "{{category.slug}}"
+difficulty: "{{category.difficulty}}"
+estimatedHours: {{category.estimatedHours}}
+modules: "{{category.modules}}"
+language: "{{language}}"
+authorId: "{{authorId}}"
+lastUpdated: "{{lastUpdated}}"
+gitPath: "content/{{category.slug}}/index.md"
+---
+
+# {{title}}
+
+## Обзор
+
+{{description}}
+
+Эта категория охватывает модули {{category.modules}} уровня {{toLowerCase category.difficulty}}.
+
+## Цели обучения
+
+По завершении этой категории вы сможете:
+
+- Понимать основные концепции {{toLowerCase title}}
+- Применять лучшие практики в реальных сценариях
+- Создавать готовые для production приложения на Go
+- Эффективно отлаживать и оптимизировать код на Go
+
+## Структура категории
+
+Категория организована в темы, которые постепенно развивают ваши знания:
+
+1. **Основы**: Ключевые концепции и синтаксис
+2. **Практическое применение**: Примеры из реального мира
+3. **Лучшие практики**: Отраслевые стандарты и паттерны
+4. **Продвинутые темы**: Техники экспертного уровня
+
+## Предварительные требования
+
+- Базовое понимание синтаксиса Go
+- Знакомство с инструментами командной строки
+- Настроенный текстовый редактор или IDE
+
+## Примерное время изучения
+
+**Всего**: {{category.estimatedHours}} часов
+**На модуль**: 2-3 часа
+**Сложность**: {{category.difficulty}}
+
+## Начало работы
+
+Начните с первой темы и систематически проходите каждую. Каждая тема включает:
+
+- Подробные объяснения
+- Примеры кода, которые можно запустить
+- Практические упражнения
+- Применение в реальном мире
+
+Готовы начать? Давайте погрузимся в изучение {{toLowerCase title}}!`;
+  }
+
+  #getTopicTemplate() {
+    return `---
+title: "{{title}}"
+description: "{{description}}"
+module: {{moduleNumber}}
+category: "{{category.slug}}"
+slug: "{{slug}}"
+language: "{{language}}"
+difficulty: "{{category.difficulty}}"
+estimatedMinutes: {{estimatedMinutes}}
+tags: ["golang", "{{category.slug}}", "tutorial"]
+objectives:
+  - "Изучить основные концепции темы"
+  - "Понять практическое применение"
+  - "Освоить лучшие практики"
+prerequisites:
+  - "Базовые знания Go"
+  - "Понимание предыдущих тем"
+authorId: "{{authorId}}"
+lastUpdated: "{{lastUpdated}}"
+gitPath: "content/{{category.slug}}/{{slug}}/topic.md"
+---
+
+# {{title}}
+
+## 🎯 Что вы изучите
+
+В этой теме вы:
+- Поймете ключевые концепции {{toLowerCase title}}
+- Изучите практические примеры применения
+- Освоите лучшие практики разработки
+- Выполните упражнения для закрепления знаний
+
+**Время изучения:** {{estimatedMinutes}} минут  
+**Уровень сложности:** {{category.difficulty}}  
+**Модуль:** {{moduleNumber}}
+
+## 📚 Теоретическая часть
+
+### Основные концепции
+
+{{#if description}}{{description}}{{else}}Подробное объяснение концепций будет добавлено здесь.{{/if}}
+
+### Ключевые принципы
+
+1. **Принцип 1** - Объяснение первого принципа
+2. **Принцип 2** - Объяснение второго принципа
+3. **Принцип 3** - Объяснение третьего принципа
+
+### Когда и зачем использовать
+
+Практические сценарии применения:
+- Сценарий 1: Описание
+- Сценарий 2: Описание
+- Сценарий 3: Описание
+
+## 💻 Практические примеры
+
+### Пример 1: Базовое использование
 
 \`\`\`go
 package main
 
 import "fmt"
 
-// Add your Go code examples here
 func main() {
-    fmt.Println("Hello, Go Tutorial!")
+    // TODO: Добавьте базовый пример
+    fmt.Println("Пример для темы: {{title}}")
+    
+    // Демонстрация основной концепции
+    result := basicExample()
+    fmt.Printf("Результат: %v\\n", result)
+}
+
+func basicExample() string {
+    // TODO: Реализуйте базовый пример
+    return "Базовый результат"
 }
 \`\`\`
 
-${isEn ? '## Best Practices' : '## Лучшие практики'}
+**Объяснение:**
+- \`package main\` - объявляет исполняемый пакет
+- \`import "fmt"\` - импортирует пакет для форматированного вывода
+- \`func main()\` - точка входа в программу
 
-${isEn ? '## Common Pitfalls' : '## Частые ошибки'}
-
-${isEn ? '## Real-World Applications' : '## Применение в реальном мире'}
-
-${isEn ? '## Further Reading' : '## Дополнительное чтение'}
-
-${isEn ? '## Summary' : '## Резюме'}
-`;
-
-    mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, content);
-  }
-
-  createExerciseFile(filePath, { titleEn, language }) {
-    const isEn = language === 'en';
-
-    const content = `---
-title: "${titleEn} - ${isEn ? 'Exercises' : 'Упражнения'}"
-language: "${language}"
-difficulty: "intermediate"
-estimatedMinutes: 30
----
-
-# ${titleEn} - ${isEn ? 'Exercises' : 'Упражнения'}
-
-${isEn ? '## Exercise 1: Basic Implementation' : '## Упражнение 1: Базовая реализация'}
-
-${isEn ? '**Task**: Implement...' : '**Задача**: Реализуйте...'}
-
-\`\`\`go
-// TODO: ${isEn ? 'Your implementation here' : 'Ваша реализация здесь'}
+**Результат выполнения:**
+\`\`\`
+Пример для темы: {{title}}
+Результат: Базовый результат
 \`\`\`
 
-${isEn ? '## Exercise 2: Advanced Usage' : '## Упражнение 2: Продвинутое использование'}
+### Пример 2: Практическое применение
 
-${isEn ? '**Task**: Extend...' : '**Задача**: Расширьте...'}
-
-${isEn ? '## Exercise 3: Real-World Scenario' : '## Упражнение 3: Реальный сценарий'}
-
-${isEn ? '**Task**: Build...' : '**Задача**: Постройте...'}
-
-${isEn ? '## Solutions' : '## Решения'}
-
-${isEn ? 'Solutions are available in the code examples file.' : 'Решения доступны в файле примеров кода.'}
-`;
-
-    mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, content);
-  }
-
-  createCodeFile(filePath, { titleEn, category, slug }) {
-    const content = `package main
+\`\`\`go
+package main
 
 import (
     "fmt"
     "log"
 )
 
-// ${titleEn} - Go Tutorial Examples
-// Category: ${category.slug}
-// Topic: ${slug}
+func main() {
+    // TODO: Добавьте практический пример
+    fmt.Println("Практический пример:")
+    
+    if err := practicalExample(); err != nil {
+        log.Printf("Ошибка: %v", err)
+        return
+    }
+    
+    fmt.Println("Пример выполнен успешно")
+}
+
+func practicalExample() error {
+    // TODO: Реализуйте практический пример с обработкой ошибок
+    return nil
+}
+\`\`\`
+
+### Пример 3: Продвинутое использование
+
+\`\`\`go
+package main
+
+import (
+    "fmt"
+    "sync"
+)
 
 func main() {
-    fmt.Println("=== ${titleEn} Examples ===")
-
-    // Example 1: Basic Usage
-    basicExample()
-
-    // Example 2: Intermediate Pattern
-    intermediateExample()
-
-    // Example 3: Advanced Implementation
-    advancedExample()
+    // TODO: Добавьте продвинутый пример
+    fmt.Println("Продвинутый пример:")
+    
+    result := advancedExample()
+    fmt.Printf("Продвинутый результат: %v\\n", result)
 }
 
-// basicExample demonstrates fundamental concepts
-func basicExample() {
-    fmt.Println("\\n📚 Basic Example:")
-    // TODO: Add your basic implementation here
+func advancedExample() interface{} {
+    // TODO: Реализуйте продвинутый пример
+    // Может включать горутины, каналы, интерфейсы и т.д.
+    
+    var wg sync.WaitGroup
+    results := make(chan string, 1)
+    
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        results <- "Продвинутый результат"
+    }()
+    
+    wg.Wait()
+    close(results)
+    
+    return <-results
 }
+\`\`\`
 
-// intermediateExample shows practical usage patterns
-func intermediateExample() {
-    fmt.Println("\\n🚀 Intermediate Example:")
-    // TODO: Add your intermediate implementation here
-}
+## 🔧 Лучшие практики
 
-// advancedExample demonstrates expert-level techniques
-func advancedExample() {
-    fmt.Println("\\n💡 Advanced Example:")
-    // TODO: Add your advanced implementation here
-}
+1. **Практика 1** - Описание и обоснование
+   - Как реализовать
+   - Почему это важно
+   - Пример использования
 
-// Helper functions and utilities
-// TODO: Add supporting code here
-`;
+2. **Практика 2** - Описание и обоснование
+   - Как реализовать
+   - Почему это важно
+   - Пример использования
 
-    mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, content);
-  }
+3. **Практика 3** - Описание и обоснование
+   - Как реализовать
+   - Почему это важно
+   - Пример использования
 
-  createChapterFile(filePath, { titleEn, titleRu, description, category }) {
-    const content = `---
-title: "${titleEn}"
-titleRu: "${titleRu}"
-description: "${description}"
-category: "${category.slug}"
-difficulty: "${category.difficulty}"
-estimatedHours: ${category.estimatedHours}
-modules: "${category.modules}"
-lastUpdated: "${new Date().toISOString()}"
-gitPath: "content/chapters/${category.slug}/index.md"
+## ⚠️ Частые ошибки
+
+1. **Ошибка 1** - Описание и способы избежать
+   \`\`\`go
+   // ❌ Неправильно
+   // Код с ошибкой
+   
+   // ✅ Правильно  
+   // Исправленный код
+   \`\`\`
+
+2. **Ошибка 2** - Описание и способы избежать
+
+3. **Ошибка 3** - Описание и способы избежать
+
+## 🌍 Применение в реальном мире
+
+Примеры использования в production:
+
+### Docker
+Как Docker использует эту концепцию в своей кодовой базе...
+
+### Kubernetes  
+Применение в Kubernetes для...
+
+### Prometheus
+Использование в системе мониторинга...
+
+## 📝 Резюме
+
+Ключевые моменты этой темы:
+- **Пункт 1**: Краткое описание
+- **Пункт 2**: Краткое описание  
+- **Пункт 3**: Краткое описание
+
+## 🔗 Дополнительные ресурсы
+
+- [Официальная документация](https://golang.org/doc/)
+- [Go by Example](https://gobyexample.com/)
+- [Effective Go](https://golang.org/doc/effective_go.html)
+- [Go Blog](https://blog.golang.org/)
+
+## ➡️ Что дальше?
+
+В следующей теме мы изучим: **[название следующей темы]**
+
+Убедитесь, что вы:
+- ✅ Понимаете основные концепции
+- ✅ Запустили все примеры кода
+- ✅ Выполнили упражнения
+- ✅ Готовы к следующей теме
+
 ---
 
-# ${titleEn}
+## 🎯 Практические упражнения
 
-## Overview
+### Упражнение 1: Базовая реализация
 
-${description}
+**Задача:** Реализуйте базовый функционал, изученный в теме.
 
-This chapter covers ${category.modules} modules in the ${titleEn} category, designed for ${category.difficulty.toLowerCase()}-level Go developers.
+**Требования:**
+- Создайте новый файл \`exercise1.go\`
+- Реализуйте основные функции
+- Добавьте обработку ошибок
+- Протестируйте код
 
-## Learning Objectives
+**Код для начала:**
 
-By the end of this chapter, you will be able to:
+\`\`\`go
+package main
 
-- Understand core concepts in ${titleEn.toLowerCase()}
-- Apply best practices in real-world scenarios
-- Build production-ready Go applications
-- Debug and optimize Go code effectively
+import "fmt"
 
-## Chapter Structure
+// TODO: Реализуйте базовый функционал
+func main() {
+    fmt.Println("Упражнение 1: Базовая реализация")
+    
+    // Ваш код здесь
+    result := solveBasic()
+    fmt.Printf("Результат: %v\\n", result)
+}
 
-This chapter is organized into sections that progressively build your knowledge:
+func solveBasic() interface{} {
+    // TODO: Реализуйте решение
+    return "Базовое решение"
+}
+\`\`\`
 
-1. **Fundamentals**: Core concepts and syntax
-2. **Practical Application**: Real-world examples
-3. **Best Practices**: Industry standards and patterns
-4. **Advanced Topics**: Expert-level techniques
+**Ожидаемый результат:**
+\`\`\`
+Упражнение 1: Базовая реализация
+Результат: [Ваш результат]
+\`\`\`
 
-## Prerequisites
+**Подсказки:**
+- Используйте концепции из основной темы
+- Не забывайте про обработку ошибок
+- Тестируйте код на разных входных данных
 
-- Basic understanding of Go syntax
-- Familiarity with command-line tools
-- Text editor or IDE setup
+### Упражнение 2: Практическое применение
 
-## Estimated Study Time
+**Задача:** Создайте практическое приложение, используя изученные концепции.
 
-**Total**: ${category.estimatedHours} hours
-**Per Module**: 2-3 hours
-**Difficulty**: ${category.difficulty}
+**Требования:**
+- Структурированный код с несколькими функциями
+- Работа с пользовательским вводом
+- Обработка edge cases
+- Документирование кода
 
-## Getting Started
+**Код для начала:**
 
-Start with the first section of this chapter and progress through each topic systematically. Each topic includes:
+\`\`\`go
+package main
 
-- Detailed explanations
-- Code examples you can run
-- Practical exercises
-- Real-world applications
+import (
+    "bufio"
+    "fmt"
+    "os"
+    "strings"
+    "log"
+)
 
-Ready to begin? Let's dive into ${titleEn.toLowerCase()}!
-`;
+func main() {
+    fmt.Println("Упражнение 2: Практическое применение")
+    
+    reader := bufio.NewReader(os.Stdin)
+    fmt.Print("Введите данные: ")
+    
+    input, err := reader.ReadString('\\n')
+    if err != nil {
+        log.Printf("Ошибка чтения: %v", err)
+        return
+    }
+    
+    input = strings.TrimSpace(input)
+    
+    // TODO: Обработайте ввод согласно заданию
+    result := processInput(input)
+    fmt.Printf("Результат: %s\\n", result)
+}
 
-    mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, content);
+func processInput(input string) string {
+    // TODO: Реализуйте обработку
+    if input == "" {
+        return "Ошибка: пустой ввод"
+    }
+    
+    return fmt.Sprintf("Обработанный результат: %s", input)
+}
+
+// TODO: Добавьте дополнительные функции по необходимости
+\`\`\`
+
+### Упражнение 3: Продвинутая задача
+
+**Задача:** Создайте комплексное решение, демонстрирующее глубокое понимание темы.
+
+**Требования:**
+- Модульная архитектура
+- Использование горутин (если применимо)
+- Обработка ошибок на всех уровнях
+- Оптимизация производительности
+
+**Код для начала:**
+
+\`\`\`go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "sync"
+    "syscall"
+    "time"
+)
+
+func main() {
+    fmt.Println("Упражнение 3: Продвинутая задача")
+    
+    // Настройка graceful shutdown
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+    
+    // Обработка сигналов
+    sigChan := make(chan os.Signal, 1)
+    signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+    
+    // TODO: Запустите вашу основную логику
+    var wg sync.WaitGroup
+    
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        runAdvancedLogic(ctx)
+    }()
+    
+    // Ожидание сигнала завершения
+    <-sigChan
+    log.Println("Получен сигнал завершения...")
+    cancel()
+    
+    // Ожидание завершения всех горутин
+    wg.Wait()
+    log.Println("Приложение завершено")
+}
+
+func runAdvancedLogic(ctx context.Context) {
+    // TODO: Реализуйте продвинутую логику
+    ticker := time.NewTicker(time.Second)
+    defer ticker.Stop()
+    
+    for {
+        select {
+        case <-ctx.Done():
+            log.Println("Завершение продвинутой логики...")
+            return
+        case <-ticker.C:
+            // TODO: Ваша периодическая логика
+            processAdvanced()
+        }
+    }
+}
+
+func processAdvanced() {
+    // TODO: Реализуйте продвинутую обработку
+    log.Println("Выполнение продвинутой обработки...")
+}
+\`\`\`
+
+## 🔍 Критерии оценки упражнений
+
+**Упражнение 1 (Базовое):**
+- ✅ Код компилируется без ошибок
+- ✅ Реализован требуемый функционал
+- ✅ Есть базовая обработка ошибок
+- ✅ Код читаемый и структурированный
+
+**Упражнение 2 (Практическое):**
+- ✅ Все требования упражнения 1
+- ✅ Правильная обработка пользовательского ввода
+- ✅ Валидация входных данных
+- ✅ Документирование функций
+- ✅ Обработка edge cases
+
+**Упражнение 3 (Продвинутое):**
+- ✅ Все требования предыдущих упражнений
+- ✅ Модульная архитектура
+- ✅ Использование контекста и горутин
+- ✅ Graceful shutdown
+- ✅ Логирование и метрики
+
+## 💡 Советы по выполнению
+
+- **Читайте ошибки:** Go компилятор дает очень информативные сообщения
+- **Используйте go fmt:** Автоматически форматируйте код
+- **Тестируйте постепенно:** Не пишите весь код сразу, тестируйте по частям
+- **Изучайте стандартную библиотеку:** Многое уже реализовано
+- **Используйте go vet:** Проверяйте код на потенциальные проблемы
+
+---
+
+*💡 Совет: Практикуйтесь с примерами кода и экспериментируйте с различными подходами для лучшего понимания материала.*
+
+*🎓 Удачи в выполнении упражнений! Помните: практика - лучший способ изучения программирования.*`;
+  }
+}
+
+// Регистрация хелперов Handlebars
+Handlebars.registerHelper('toLowerCase', function(str) {
+  return str ? str.toLowerCase() : '';
+});
+
+// === CONTENT GENERATOR ===
+class ContentGenerator {
+  #templateManager;
+  #fileSystem;
+  #logger;
+
+  constructor(templateManager, fileSystem = null, logger = console) {
+    this.#templateManager = templateManager;
+    this.#fileSystem = fileSystem || {
+      writeFile: async (path, content, encoding) => await writeFile(path, content, encoding),
+      mkdirSync: (path, options) => mkdirSync(path, options)
+    };
+    this.#logger = logger;
   }
 
-  async validate() {
-    const spinner = ora('Validating content structure...').start();
-
+  async generateContent(contentType, data) {
     try {
-      // Validate repository structure
-      this.validateStructure();
+      const content = this.#templateManager.render(contentType, {
+        ...data,
+        lastUpdated: new Date().toISOString()
+      });
 
-      // Validate content quality
-      this.validateContentQuality();
+      const filePath = this.#getFilePath(contentType, data);
+      await this.#ensureDirectory(filePath);
+      await this.#writeFile(filePath, content);
 
-      // Validate godojo.dev compatibility
-      this.validateGodojoCompatibility();
+      return filePath;
+    } catch (error) {
+      throw new ContentAuthorError(
+          `Failed to generate ${contentType} content`,
+          'CONTENT_GENERATION_FAILED',
+          { contentType, error: error.message }
+      );
+    }
+  }
 
-      spinner.succeed('All validations passed!');
-      console.log(chalk.green('✅ Content is ready for godojo.dev'));
+  #getFilePath(contentType, data) {
+    const contentStructure = {
+      category: `content/${data.category.slug}/index.md`,
+      topic: `content/${data.category.slug}/${data.slug}/topic.md`
+    };
+
+    return contentStructure[contentType];
+  }
+
+  async #ensureDirectory(filePath) {
+    const dir = dirname(filePath);
+    this.#fileSystem.mkdirSync(dir, { recursive: true });
+  }
+
+  async #writeFile(filePath, content) {
+    await this.#fileSystem.writeFile(filePath, content, 'utf8');
+  }
+
+  generateSlug(title, moduleNumber = null) {
+    const titleSlug = slugify(title, { lower: true, strict: true });
+
+    if (moduleNumber !== null) {
+      const paddedNumber = String(moduleNumber).padStart(2, '0');
+      return `${paddedNumber}-${titleSlug}`;
+    }
+
+    return titleSlug;
+  }
+}
+
+// === CONTENT VALIDATOR ===
+class ContentValidator {
+  #configManager;
+  #logger;
+
+  constructor(configManager, logger = console) {
+    this.#configManager = configManager;
+    this.#logger = logger;
+  }
+
+  async validateStructure() {
+    const requiredDirs = ['content'];
+    const errors = [];
+
+    for (const dir of requiredDirs) {
+      if (!existsSync(dir)) {
+        errors.push(`Missing required directory: ${dir}`);
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new ValidationError(
+          'Directory structure validation failed',
+          'VALIDATION_STRUCTURE_FAILED',
+          { errors }
+      );
+    }
+  }
+
+  async validateContent(filePath) {
+    if (!existsSync(filePath)) {
+      throw new ValidationError(
+          'Content file not found',
+          'VALIDATION_FILE_NOT_FOUND',
+          { filePath }
+      );
+    }
+
+    const content = await readFile(filePath, 'utf8');
+    const standards = this.#configManager.getQualityStandards();
+    const errors = [];
+
+    // Validate word count
+    const wordCount = this.#countWords(content);
+    if (wordCount < standards.minWords) {
+      errors.push(`Word count (${wordCount}) is below minimum (${standards.minWords})`);
+    }
+
+    // Validate code examples
+    const codeExamples = this.#countCodeExamples(content);
+    if (codeExamples < standards.minCodeExamples) {
+      errors.push(`Code examples (${codeExamples}) below minimum (${standards.minCodeExamples})`);
+    }
+
+    // Validate exercises
+    const exercises = this.#countExercises(content);
+    if (exercises < standards.minExercises) {
+      errors.push(`Exercises (${exercises}) below minimum (${standards.minExercises})`);
+    }
+
+    if (errors.length > 0) {
+      throw new ValidationError(
+          'Content quality validation failed',
+          'VALIDATION_QUALITY_FAILED',
+          { filePath, errors }
+      );
+    }
+  }
+
+  #countWords(content) {
+    // Remove frontmatter
+    const contentWithoutFrontmatter = content.replace(/^---[\s\S]*?---\n/, '');
+    // Remove code blocks
+    const contentWithoutCode = contentWithoutFrontmatter.replace(/```[\s\S]*?```/g, '');
+    // Count words
+    return contentWithoutCode.split(/\s+/).filter(word => word.length > 0).length;
+  }
+
+  #countCodeExamples(content) {
+    const codeBlocks = content.match(/```go[\s\S]*?```/g) || [];
+    return codeBlocks.length;
+  }
+
+  #countExercises(content) {
+    const exercises = content.match(/### Упражнение \d+:/g) || [];
+    return exercises.length;
+  }
+
+  async validateAll() {
+    await this.validateStructure();
+
+    const categories = this.#configManager.getCategories();
+    const validationResults = [];
+
+    for (const category of categories) {
+      const categoryPath = `content/${category.slug}`;
+      if (existsSync(categoryPath)) {
+        // Validate category index
+        try {
+          await this.validateContent(`${categoryPath}/index.md`);
+          validationResults.push({
+            path: `${categoryPath}/index.md`,
+            status: 'passed'
+          });
+        } catch (error) {
+          validationResults.push({
+            path: `${categoryPath}/index.md`,
+            status: 'failed',
+            errors: error.details.errors
+          });
+        }
+      }
+    }
+
+    return validationResults;
+  }
+}
+
+// === USER INTERFACE ===
+class UserInterface {
+  #prompter;
+  #logger;
+
+  constructor(prompter = inquirer, logger = console) {
+    this.#prompter = prompter;
+    this.#logger = logger;
+  }
+
+  showWelcome(config) {
+    const languageNames = {
+      'en': 'English',
+      'ru': 'Русский'
+    };
+
+    const language = config.structure.defaultLanguage;
+
+    this.#logger.log(boxen(
+        chalk.blue.bold('🚀 Go Tutorial Content Author\n\n') +
+        chalk.white(`Target Language: ${languageNames[language] || language}\n`) +
+        chalk.white('Repository: ') + chalk.yellow.bold('golang-book-ru\n') +
+        chalk.white('Platform: ') + chalk.yellow.bold('godojo.dev'),
+        { padding: 1, borderColor: 'blue', borderStyle: 'round' }
+    ));
+  }
+
+  showAuthorProfile(profile) {
+    this.#logger.log(chalk.green(`✅ Добро пожаловать, ${profile.displayName}!`));
+    this.#logger.log(chalk.gray(`👤 ID: ${profile.authorId}`));
+    this.#logger.log(chalk.gray(`📝 Язык контента: ${this.#getLanguageName(profile.language)}`));
+    this.#logger.log(chalk.gray(`📊 Создано контента: ${profile.contentCreated}`));
+    this.#logger.log(chalk.gray(`🏷️  Специализация: ${profile.expertise.join(', ')}`));
+  }
+
+  async promptAuthorDetails() {
+    this.#logger.log(chalk.yellow('\n📝 Настройка профиля автора для godojo.dev\n'));
+
+    return await this.#prompter.prompt([
+      {
+        type: 'input',
+        name: 'displayName',
+        message: 'Ваше полное имя (будет показано на сайте):',
+        validate: input => input.trim().length >= 2 || 'Имя должно содержать минимум 2 символа'
+      },
+      {
+        type: 'input',
+        name: 'username',
+        message: 'Уникальный username (английские буквы, цифры, дефис):',
+        validate: input => {
+          const valid = /^[a-zA-Z0-9-]+$/.test(input) && input.length >= 3;
+          return valid || 'Username должен содержать только английские буквы, цифры и дефис (минимум 3 символа)';
+        },
+        filter: input => input.toLowerCase()
+      },
+      {
+        type: 'input',
+        name: 'email',
+        message: 'Email (для связи и уведомлений):',
+        validate: input => {
+          const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
+          return valid || 'Введите корректный email адрес';
+        }
+      },
+      {
+        type: 'input',
+        name: 'bio',
+        message: 'Краткое описание (появится в профиле):',
+        validate: input => input.trim().length >= 10 || 'Описание должно содержать минимум 10 символов'
+      },
+      {
+        type: 'checkbox',
+        name: 'expertise',
+        message: 'Ваши области экспертизы (выберите несколько):',
+        choices: [
+          { name: 'Основы Go', value: 'go-basics' },
+          { name: 'Конкурентность', value: 'concurrency' },
+          { name: 'Веб-разработка', value: 'web-development' },
+          { name: 'Базы данных', value: 'databases' },
+          { name: 'Тестирование', value: 'testing' },
+          { name: 'Production/DevOps', value: 'production' },
+          { name: 'Производительность', value: 'performance' },
+          { name: 'Архитектура систем', value: 'architecture' },
+          { name: 'Безопасность', value: 'security' },
+          { name: 'Kubernetes', value: 'kubernetes' }
+        ],
+        validate: input => input.length > 0 || 'Выберите хотя бы одну область экспертизы'
+      },
+      {
+        type: 'input',
+        name: 'githubUsername',
+        message: 'GitHub username (опционально):',
+        filter: input => input.trim() || null
+      },
+      {
+        type: 'input',
+        name: 'twitterUsername',
+        message: 'Twitter username (опционально, без @):',
+        filter: input => input.trim() || null
+      },
+      {
+        type: 'input',
+        name: 'website',
+        message: 'Личный сайт (опционально):',
+        filter: input => input.trim() || null
+      }
+    ]);
+  }
+
+  async promptContentType(categories) {
+    this.#logger.log(chalk.blue.bold('\n📝 Создание нового контента\n'));
+
+    const categoryChoices = categories.map(cat => ({
+      name: `${cat.titleRu} - Модули ${cat.modules} (${cat.difficulty})`,
+      value: cat.slug,
+      short: cat.titleRu
+    }));
+
+    const { category } = await this.#prompter.prompt([{
+      type: 'list',
+      name: 'category',
+      message: 'Выберите категорию:',
+      choices: categoryChoices
+    }]);
+
+    const { contentType } = await this.#prompter.prompt([{
+      type: 'list',
+      name: 'contentType',
+      message: 'Тип контента:',
+      choices: [
+        { name: 'Обзор категории (Category Overview)', value: 'category' },
+        { name: 'Тема урока (Topic)', value: 'topic' }
+      ]
+    }]);
+
+    return { category, contentType };
+  }
+
+  async promptTopicDetails() {
+    return await this.#prompter.prompt([
+      {
+        type: 'input',
+        name: 'title',
+        message: 'Название темы:',
+        validate: input => input.trim().length > 0 || 'Название темы обязательно',
+        filter: input => input.trim()
+      },
+      {
+        type: 'input',
+        name: 'description',
+        message: 'Краткое описание:',
+        filter: input => input.trim()
+      },
+      {
+        type: 'number',
+        name: 'moduleNumber',
+        message: 'Номер модуля:',
+        validate: input => (input > 0 && input <= 79) || 'Номер модуля должен быть от 1 до 79'
+      },
+      {
+        type: 'number',
+        name: 'estimatedMinutes',
+        message: 'Примерное время изучения (минут):',
+        default: 45,
+        validate: input => input > 0 || 'Время должно быть больше 0'
+      }
+    ]);
+  }
+
+  showContentCreated(details) {
+    this.#logger.log(chalk.green('\n✅ Контент успешно создан!'));
+    this.#logger.log(chalk.gray('📁 Категория:'), chalk.white(details.category.titleRu));
+    this.#logger.log(chalk.gray('📝 Тип:'), chalk.white(details.contentType));
+    this.#logger.log(chalk.gray('🏷️  Slug:'), chalk.white(details.slug));
+
+    this.#logger.log(chalk.blue('\n📂 Созданные файлы:'));
+    for (const filePath of details.files) {
+      const fullPath = join(cwd(), filePath);
+      this.#logger.log(chalk.gray('  📄'), chalk.cyan(`file://${fullPath}`));
+    }
+  }
+
+  showNextSteps(contentType) {
+    this.#logger.log(chalk.blue('\n📝 Следующие шаги:'));
+
+    switch (contentType) {
+      case 'topic':
+        this.#logger.log(chalk.gray('1. Откройте topic.md и заполните содержимое'));
+        this.#logger.log(chalk.gray('2. Добавьте реальные примеры кода в разделы'));
+        this.#logger.log(chalk.gray('3. Дополните упражнения в конце файла'));
+        this.#logger.log(chalk.gray('4. Протестируйте все примеры кода'));
+        break;
+
+      case 'category':
+        this.#logger.log(chalk.gray('1. Откройте index.md и дополните описание категории'));
+        this.#logger.log(chalk.gray('2. Создайте первые темы в этой категории'));
+        this.#logger.log(chalk.gray('3. Упорядочите темы по сложности'));
+        break;
+    }
+
+    this.#logger.log(chalk.blue('\n🛠️  Полезные команды:'));
+    this.#logger.log(chalk.gray('• Валидация:'), chalk.yellow('npm run author:validate'));
+    this.#logger.log(chalk.gray('• Создание еще контента:'), chalk.yellow('npm run author:new'));
+
+    this.#logger.log(chalk.blue('\n💡 Советы:'));
+    this.#logger.log(chalk.gray('• Используйте go run для проверки примеров кода'));
+    this.#logger.log(chalk.gray('• Соблюдайте минимум 800 слов на тему'));
+    this.#logger.log(chalk.gray('• Добавляйте минимум 3 примера кода'));
+    this.#logger.log(chalk.gray('• Создавайте минимум 2 упражнения'));
+  }
+
+  showHelp(config) {
+    const language = config.structure.defaultLanguage;
+
+    this.#logger.log(boxen(
+        chalk.blue.bold('🚀 Go Tutorial Content Author\n\n') +
+        chalk.white('Инструмент для создания контента golang-book-ru\n') +
+        chalk.gray(`Язык контента: ${this.#getLanguageName(language)}\n\n`) +
+        chalk.white('Доступные команды:\n\n') +
+        chalk.yellow('npm run author:init') + chalk.gray('     - Настройка окружения автора\n') +
+        chalk.yellow('npm run author:new') + chalk.gray('      - Создание нового контента\n') +
+        chalk.yellow('npm run author:validate') + chalk.gray(' - Валидация качества контента\n') +
+        chalk.yellow('npm run author:stats') + chalk.gray('    - Статистика автора\n') +
+        chalk.yellow('npm run author:help') + chalk.gray('     - Показать эту справку'),
+        { padding: 1, borderColor: 'blue', borderStyle: 'round' }
+    ));
+
+    this.#logger.log(chalk.blue('\n📚 Новая структура контента:'));
+    this.#logger.log(chalk.gray('content/'));
+    this.#logger.log(chalk.gray('├── basics/'));
+    this.#logger.log(chalk.gray('│   ├── index.md              # Обзор категории'));
+    this.#logger.log(chalk.gray('│   ├── 01-introduction/'));
+    this.#logger.log(chalk.gray('│   │   └── topic.md          # Контент + код + упражнения'));
+    this.#logger.log(chalk.gray('│   └── 02-variables/'));
+    this.#logger.log(chalk.gray('│       └── topic.md          # Все в одном файле'));
+    this.#logger.log(chalk.gray('└── concurrency/'));
+    this.#logger.log(chalk.gray('    ├── index.md'));
+    this.#logger.log(chalk.gray('    └── [темы...]'));
+
+    this.#logger.log(chalk.blue('\n🎯 Стандарты качества:'));
+    this.#logger.log(chalk.gray(`• Минимум ${config.quality.minWords} слов на тему`));
+    this.#logger.log(chalk.gray(`• Минимум ${config.quality.minCodeExamples} примеров кода`));
+    this.#logger.log(chalk.gray(`• Минимум ${config.quality.minExercises} упражнений`));
+  }
+
+  showValidationResults(results) {
+    this.#logger.log(chalk.blue('\n📊 Результаты валидации:\n'));
+
+    let passed = 0;
+    let failed = 0;
+
+    for (const result of results) {
+      if (result.status === 'passed') {
+        this.#logger.log(chalk.green('✅'), chalk.gray(result.path));
+        passed++;
+      } else {
+        this.#logger.log(chalk.red('❌'), chalk.gray(result.path));
+        if (result.errors) {
+          result.errors.forEach(error => {
+            this.#logger.log(chalk.red(`   - ${error}`));
+          });
+        }
+        failed++;
+      }
+    }
+
+    this.#logger.log(chalk.blue(`\n📈 Итого: ${passed} прошло, ${failed} не прошло`));
+
+    if (failed === 0) {
+      this.#logger.log(chalk.green('\n✅ Весь контент соответствует стандартам качества!'));
+    } else {
+      this.#logger.log(chalk.yellow('\n⚠️  Некоторый контент требует доработки'));
+    }
+  }
+
+  showError(error) {
+    this.#logger.error(chalk.red(`\n❌ ${error.message}`));
+
+    if (error.details) {
+      if (error.details.errors) {
+        this.#logger.error(chalk.red('\nОшибки:'));
+        error.details.errors.forEach(err => {
+          if (typeof err === 'string') {
+            this.#logger.error(chalk.red(`  - ${err}`));
+          } else {
+            this.#logger.error(chalk.red(`  - ${err.message || JSON.stringify(err)}`));
+          }
+        });
+      }
+
+      if (error.details.configPath) {
+        this.#logger.error(chalk.gray(`\nФайл: ${error.details.configPath}`));
+      }
+    }
+
+    if (process.env.NODE_ENV === 'development' && error.stack) {
+      this.#logger.error(chalk.gray('\nСтек вызовов:'));
+      this.#logger.error(chalk.gray(error.stack));
+    }
+  }
+
+  #getLanguageName(langCode) {
+    const names = {
+      'en': 'English',
+      'ru': 'Русский'
+    };
+    return names[langCode] || langCode;
+  }
+}
+
+// === MAIN APPLICATION ===
+class ContentAuthor {
+  #configManager;
+  #authorManager;
+  #contentGenerator;
+  #contentValidator;
+  #ui;
+  #logger;
+
+  constructor({
+                configManager = new ConfigManager(),
+                authorManager = new AuthorManager(),
+                templateManager = new TemplateManager(),
+                ui = new UserInterface(),
+                logger = console
+              } = {}) {
+    this.#configManager = configManager;
+    this.#authorManager = authorManager;
+    this.#contentGenerator = new ContentGenerator(templateManager);
+    this.#contentValidator = new ContentValidator(configManager);
+    this.#ui = ui;
+    this.#logger = logger;
+  }
+
+  async init() {
+    try {
+      const config = await this.#configManager.loadConfig();
+      this.#ui.showWelcome(config);
+
+      await this.#authorManager.loadProfile();
+      const authorProfile = this.#authorManager.getProfile();
+
+      if (authorProfile) {
+        this.#ui.showAuthorProfile(authorProfile);
+        return;
+      }
+
+      // Create new profile
+      const answers = await this.#ui.promptAuthorDetails();
+      const languageConfig = this.#configManager.getLanguageConfig();
+
+      const newProfile = {
+        authorId: this.#authorManager.generateAuthorId(answers.username),
+        username: answers.username,
+        displayName: answers.displayName,
+        email: answers.email,
+        bio: answers.bio,
+        expertise: answers.expertise,
+        socialLinks: {
+          github: answers.githubUsername,
+          twitter: answers.twitterUsername,
+          website: answers.website
+        },
+        language: languageConfig.default,
+        joinDate: new Date().toISOString(),
+        contentCreated: 0,
+        contentHistory: [],
+        platform: 'godojo.dev',
+        repository: 'golang-book-ru',
+        toolVersion: '2.0.0'
+      };
+
+      await this.#authorManager.saveProfile(newProfile);
+
+      this.#logger.log(chalk.green('\n✅ Профиль автора создан!'));
+      this.#logger.log(chalk.blue('\n📋 Информация профиля:'));
+      this.#logger.log(chalk.gray(`👤 Имя: ${newProfile.displayName}`));
+      this.#logger.log(chalk.gray(`🆔 ID: ${newProfile.authorId}`));
+      this.#logger.log(chalk.gray(`📧 Email: ${newProfile.email}`));
+      this.#logger.log(chalk.gray(`🏷️  Экспертиза: ${newProfile.expertise.join(', ')}`));
 
     } catch (error) {
-      spinner.fail('Validation failed');
-      console.error(chalk.red(error.message));
+      this.#ui.showError(error);
       process.exit(1);
     }
   }
 
-  validateStructure() {
-    // Check required directories exist
-    const requiredDirs = [
-      'content/chapters',
-      'content/sections',
-      'content/topics',
-      'code',
-      'exercises'
-    ];
+  async createContent() {
+    try {
+      const config = await this.#configManager.loadConfig();
+      const authorProfile = this.#authorManager.getProfile();
 
-    for (const dir of requiredDirs) {
-      if (!existsSync(dir)) {
-        throw new Error(`Missing required directory: ${dir}`);
+      if (!authorProfile) {
+        await this.#authorManager.loadProfile();
+        const loadedProfile = this.#authorManager.getProfile();
+
+        if (!loadedProfile) {
+          this.#logger.log(chalk.red('❌ Сначала запустите'), chalk.yellow('npm run author:init'));
+          return;
+        }
       }
+
+      const categories = this.#configManager.getCategories();
+      const { category: categorySlug, contentType } = await this.#ui.promptContentType(categories);
+
+      const selectedCategory = categories.find(c => c.slug === categorySlug);
+
+      let contentDetails;
+      if (contentType === 'topic') {
+        const topicData = await this.#ui.promptTopicDetails();
+        const slug = this.#contentGenerator.generateSlug(topicData.title, topicData.moduleNumber);
+        contentDetails = { ...topicData, slug };
+      } else {
+        contentDetails = {
+          title: selectedCategory.titleRu,
+          description: selectedCategory.descriptionRu,
+          slug: selectedCategory.slug
+        };
+      }
+
+      const spinner = ora('Создание структуры контента...').start();
+
+      try {
+        const filePath = await this.#contentGenerator.generateContent(contentType, {
+          ...contentDetails,
+          category: selectedCategory,
+          language: config.structure.defaultLanguage,
+          authorId: this.#authorManager.getProfile().authorId
+        });
+
+        spinner.succeed('Структура контента создана!');
+
+        await this.#authorManager.updateStats(contentType, {
+          ...contentDetails,
+          category: selectedCategory.slug,
+          files: [filePath]
+        });
+
+        this.#ui.showContentCreated({
+          category: selectedCategory,
+          contentType,
+          slug: contentDetails.slug,
+          files: [filePath]
+        });
+
+        this.#ui.showNextSteps(contentType);
+
+      } catch (error) {
+        spinner.fail('Не удалось создать контент');
+        throw error;
+      }
+
+    } catch (error) {
+      this.#ui.showError(error);
+      process.exit(1);
     }
   }
 
-  validateContentQuality() {
-    // Validate content meets quality standards
-    // This would include checking word count, code examples, etc.
-    console.log(chalk.gray('   ✓ Content quality standards met'));
+  async validate() {
+    try {
+      await this.#configManager.loadConfig();
+
+      const spinner = ora('Валидация структуры контента...').start();
+
+      try {
+        const results = await this.#contentValidator.validateAll();
+        spinner.succeed('Валидация завершена!');
+
+        this.#ui.showValidationResults(results);
+
+      } catch (error) {
+        spinner.fail('Валидация не пройдена');
+        throw error;
+      }
+
+    } catch (error) {
+      this.#ui.showError(error);
+      process.exit(1);
+    }
   }
 
-  validateGodojoCompatibility() {
-    // Validate compatibility with godojo.dev parsing
-    console.log(chalk.gray('   ✓ godojo.dev compatibility verified'));
+  async showHelp() {
+    try {
+      const config = await this.#configManager.loadConfig();
+      this.#ui.showHelp(config);
+    } catch (error) {
+      this.#ui.showError(error);
+      process.exit(1);
+    }
   }
 
-  showHelp() {
-    console.log(boxen(
-      chalk.blue.bold('🚀 Go Tutorial Content Author\n\n') +
-      chalk.white('Available commands:\n\n') +
-      chalk.yellow('npm run author:init') + chalk.gray('     - Setup authoring environment\n') +
-      chalk.yellow('npm run author:new') + chalk.gray('      - Create new content\n') +
-      chalk.yellow('npm run author:validate') + chalk.gray(' - Validate content quality\n') +
-      chalk.yellow('npm run author:preview') + chalk.gray('  - Preview content locally\n') +
-      chalk.yellow('npm run author:publish') + chalk.gray('  - Publish content'),
-      { padding: 1, borderColor: 'blue', borderStyle: 'round' }
-    ));
+  async showStats() {
+    try {
+      await this.#authorManager.loadProfile();
+      const profile = this.#authorManager.getProfile();
+
+      if (!profile) {
+        this.#logger.log(chalk.red('❌ Профиль автора не найден. Сначала запустите'), chalk.yellow('npm run author:init'));
+        return;
+      }
+
+      this.#logger.log(chalk.blue.bold('\n📊 Статистика автора\n'));
+      this.#logger.log(chalk.gray('👤 Автор:'), chalk.white(profile.displayName));
+      this.#logger.log(chalk.gray('📝 Создано контента:'), chalk.white(profile.contentCreated));
+      this.#logger.log(chalk.gray('📅 Дата регистрации:'), chalk.white(new Date(profile.joinDate).toLocaleDateString('ru-RU')));
+
+      if (profile.contentHistory.length > 0) {
+        this.#logger.log(chalk.blue('\n📚 Последние 5 созданных материалов:'));
+        const recentContent = profile.contentHistory.slice(-5).reverse();
+
+        recentContent.forEach((content, index) => {
+          this.#logger.log(chalk.gray(`${index + 1}. ${content.title} (${content.type})`));
+          this.#logger.log(chalk.gray(`   Категория: ${content.category}, Создано: ${new Date(content.createdAt).toLocaleDateString('ru-RU')}`));
+        });
+      }
+    } catch (error) {
+      this.#ui.showError(error);
+      process.exit(1);
+    }
   }
 }
 
-// CLI Interface
-const author = new ContentAuthor();
-const command = process.argv[2];
+// === CLI ENTRY POINT ===
+async function checkNodeVersion() {
+  const currentVersion = process.versions.node;
+  const requiredMajorVersion = 22;
+  const currentMajorVersion = parseInt(currentVersion.split('.')[0]);
 
-switch (command) {
-  case 'init':
-    await author.init();
-    break;
-  case 'new':
-    await author.createContent();
-    break;
-  case 'validate':
-    await author.validate();
-    break;
-  case 'help':
-  default:
-    author.showHelp();
+  if (currentMajorVersion < requiredMajorVersion) {
+    console.error(chalk.red(`\n❌ Требуется Node.js версии ${requiredMajorVersion}.0.0 или выше (LTS)`));
+    console.error(chalk.yellow(`📍 Текущая версия: ${currentVersion}`));
+    console.error(chalk.gray(`\n💡 Установите последнюю LTS версию:`));
+    console.error(chalk.cyan(`   https://nodejs.org/\n`));
+    process.exit(1);
+  }
 }
+
+async function main() {
+  // Проверяем версию Node.js
+  checkNodeVersion();
+
+  const app = new ContentAuthor();
+  const command = process.argv[2];
+
+  try {
+    switch (command) {
+      case 'init':
+        await app.init();
+        break;
+      case 'new':
+        await app.createContent();
+        break;
+      case 'validate':
+        await app.validate();
+        break;
+      case 'stats':
+        await app.showStats();
+        break;
+      case 'help':
+      default:
+        await app.showHelp();
+    }
+  } catch (error) {
+    console.error(chalk.red('❌ Произошла ошибка:'), error.message);
+    if (process.env.NODE_ENV === 'development') {
+      console.error(error.stack);
+    }
+    process.exit(1);
+  }
+}
+
+// Run the application
+main().catch(error => {
+  console.error(chalk.red('❌ Fatal error:'), error);
+  process.exit(1);
+});
